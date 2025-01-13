@@ -6,10 +6,10 @@ import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 dotenv.config();
 
 const OLLAMA_API = 'http://localhost:11434';
-const MODEL_EMBEDDING = 'mistral';
-const MODEL_GENERATION = 'mistral';
+const MODEL_EMBEDDING = 'llama3.2';
+const MODEL_GENERATION = 'llama3.2';
 const CHUNK_SIZE = 1000; // Size of text chunks for processing
-const INDEX_NAME = 'rag-docs'; // Single index for all users
+const INDEX_NAME = 'rag-docs-llama'; // Single index for all users
 
 // Initialize Pinecone client
 const pinecone = new Pinecone({
@@ -123,6 +123,7 @@ async function addDocument(userId, text, metadata = {}) {
         const results = [];
 
         for (let i = 0; i < chunks.length; i++) {
+            console.log(`Processing chunk ${i + 1} of ${chunks.length}`);
             const chunk = chunks[i];
             const embedding = await getEmbedding(chunk);
             const id = `doc_${Date.now()}_chunk_${i}`;
@@ -169,7 +170,7 @@ async function addPdfDocument(userId, pdfBuffer, metadata = {}) {
 }
 
 // Find similar documents using Pinecone index
-async function findSimilarDocuments(userId, query, topK = 2) {
+async function findSimilarDocuments(userId, query, topK = 3) {
     try {
         const index = await getIndex();
         const queryEmbedding = await getEmbedding(query);
@@ -199,31 +200,23 @@ async function askQuestion(userId, question, returnData = false) {
         
         // Generate response using context
         const context = similarDocs.map(doc => doc.text).join('\n\n');
+        console.log(`\nContext:\n${context}`);
         const response = await fetch(`${OLLAMA_API}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 model: MODEL_GENERATION,
-                prompt: `You are a helpful AI assistant that answers questions based on the provided context. Follow these instructions carefully:
-
-1. LANGUAGE MATCHING IS CRITICAL:
-   - If the question is in Bahasa Indonesia, respond in Bahasa Indonesia
-   - If the question is in English, respond in English
-   - Always match the language of the question exactly
-
-2. Answer Guidelines:
-   - ONLY use information from the provided context
-   - If you find the exact answer, provide it directly
-   - If you find related information, explain the connection
-   - If no relevant information exists, state this clearly in the same language as the question
-   - Keep responses concise but informative
-
+                prompt: `
+System Prompt:
+You are a AI journalist that answers questions based on the provided context
+-----------------------------------------------------------------------------------------------------------
 Context:
 ${context}
-
-Question: ${question}
-
-Provide your answer in the SAME LANGUAGE as the question, using ONLY information from the context above:`,
+-----------------------------------------------------------------------------------------------------------
+Question:
+${question}
+-----------------------------------------------------------------------------------------------------------
+`,
                 stream: false
             })
         });
@@ -258,7 +251,14 @@ Provide your answer in the SAME LANGUAGE as the question, using ONLY information
 async function addDocuments(userId, documents, metadata = {}) {
     try {
         const results = [];
+        // total documents
+        let totalDocs = documents.length;
+        // counter
+        let counter = 0;
         for (const doc of documents) {
+            console.log(`Processing document ${counter + 1} of ${totalDocs}...`);
+            counter++;            
+            console.log(`Processing document...`);            
             const result = await addDocument(userId, doc, metadata);
             results.push(result);
         }
